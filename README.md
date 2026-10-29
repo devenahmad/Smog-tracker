@@ -46,7 +46,3 @@ smog-tracker/
 - [ ] Telegram alert when AQI goes above 200
 - [ ] More cities (Karachi, Islamabad)
 - [ ] Deploy (Render / PythonAnywhere)
-
-## Screenshot
-
-_(add a screenshot here: `docs/screenshot.png`)_
