@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lahore Smog Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <div class="shell">
+    <nav class="topbar">
+      <a class="brand" href="/"><span class="brand-mark"></span><span>Smog<b>tracker</b></span></a>
+      <div class="tabs">
+        <a class="active" href="#overview">Overview</a>
+        <a href="#map">Smog Map</a>
+        <a href="#trend">Trend</a>
+      </div>
+      <div class="topbar-right">
+        <span class="sync">
+          <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+          Synced {{ now }}
+        </span>
+      </div>
+    </nav>
+
+    {% if feed is none %}
+    <section class="card error">
+      <h2>Couldn't load air quality data</h2>
+      <p>Check your internet connection, then refresh the page.</p>
+      <a class="btn btn-primary" href="/">Refresh</a>
+    </section>
+    {% else %}
+    <div class="grid" id="overview">
+      <main class="col-main">
+        <div class="liveline">
+          <p>
+            <span class="live">Live update:</span>
+            Lahore AQI {{ feed.aqi }}, {{ level.label|lower }}.
+            <a href="#forecast">See forecast &rarr;</a>
+          </p>
+          <div class="liveline-actions">
+            <span class="location">
+              <svg viewBox="0 0 24 24"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>
+              Lahore, PK
+            </span>
+            <a class="btn btn-primary" href="/">
+              <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg>
+              Refresh
+            </a>
+          </div>
+        </div>
+
+        <section class="card map-card" id="map">
+          <div id="map-canvas" aria-label="Map of Lahore showing current smog level"></div>
+          {% if feed.aqi > 150 %}
+          <span class="map-alert">
+            <svg viewBox="0 0 24 24"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>
+            Smog alert: {{ level.label }}
+          </span>
+          {% endif %}
+          <div class="map-legend">
+            {% for l in levels %}<span style="--c: {{ l.color }}" title="{{ l.label }}"></span>{% endfor %}
+            <small>Good &rarr; Hazardous</small>
+          </div>
+        </section>
+
+        <div class="row">
+          <section class="card extremes">
+            <div class="card-head">
+              <h2>Today's Extremes</h2>
+              <span class="chip">Last {{ history|length }} hours</span>
+            </div>
+            {% if feed.aqi > 150 %}
+            <p class="notice">The air is unhealthy for everyone. Limit time outdoors and wear a mask.</p>
+            {% endif %}
+            <dl class="stat-list">
+              <div><dt>Peak AQI</dt><dd>{{ peak if peak is not none else '–' }}</dd></div>
+              <div><dt>Lowest AQI</dt><dd>{{ low if low is not none else '–' }}</dd></div>
+              <div><dt>Main pollutant</dt><dd>PM2.5</dd></div>
+            </dl>
+          </section>
+
+          <section class="card trend" id="trend">
+            <div class="card-head">
+              <h2>Air Quality Index (AQI) Trend</h2>
+              <span class="chip" style="--c: {{ level.color }}">{{ level.label }}</span>
+            </div>
+            {% if history %}
+            <div class="trend-chart" id="trend-chart"></div>
+            {% else %}
+            <p class="empty">No history yet. Each page refresh saves a reading, so the chart will fill in over time.</p>
+            {% endif %}
+          </section>
+        </div>
+      </main>
+
+      <aside class="col-side">
+        <div class="side-head">
+          <h2>Detail Overview</h2>
+          <span>Local Time: {{ now }} PKT</span>
+        </div>
+
+        <section class="card current" style="--c: {{ level.color }}">
+          <div class="current-top">
+            <div class="aqi-ring"><span>{{ feed.aqi }}</span><small>AQI</small></div>
+            <div>
+              <p class="eyebrow">Current air quality</p>
+              <p class="status">{{ level.label }}</p>
+            </div>
+          </div>
+          <p class="advice">{{ level.advice }}</p>
+          <dl class="weather">
+            <div><dt>Temp</dt><dd>{{ feed.weather.t|round|int if feed.weather.t is not none else '–' }}&deg;C</dd></div>
+            <div><dt>Humidity</dt><dd>{{ feed.weather.h|round|int if feed.weather.h is not none else '–' }}%</dd></div>
+            <div><dt>Wind</dt><dd>{{ feed.weather.w|round|int if feed.weather.w is not none else '–' }} km/h</dd></div>
+          </dl>
+          <p class="updated">Open-Meteo &middot; updated {{ measured }}</p>
+        </section>
+
+        <section class="card forecast" id="forecast">
+          <div class="card-head">
+            <h2>7-Day Forecast</h2>
+            <span class="chip">Daily avg</span>
+          </div>
+          {% if forecast %}
+          <ol class="days">
+            {% for f in forecast %}
+            <li title="{{ f.day }}: {{ f.level.label }}">
+              <span class="day">{{ f.label }}</span>
+              <span class="dot" style="--c: {{ f.level.color }}"></span>
+              <span class="num">{{ f.avg }}</span>
+            </li>
+            {% endfor %}
+          </ol>
+          {% else %}
+          <p class="empty">No forecast is available for this station.</p>
+          {% endif %}
+        </section>
+
+        <section class="card pollutants">
+          <div class="card-head">
+            <h2>Pollutant Overview</h2>
+            <span class="chip">sub-index</span>
+          </div>
+          <ul class="meters">
+            {% for p in pollutants %}
+            <li>
+              <span class="name">{{ p.name }}</span>
+              <span class="track">
+                {% if p.value is not none %}<span class="fill" style="width: {{ [p.value / 3, 100]|min }}%; --c: {{ p.color }}"></span>{% endif %}
+              </span>
+              <span class="num">{{ p.value|round|int if p.value is not none else '–' }}</span>
+            </li>
+            {% endfor %}
+          </ul>
+        </section>
+      </aside>
+    </div>
+    {% endif %}
+  </div>
+
+  <footer>Data: <a href="https://open-meteo.com/">Open-Meteo</a> air quality and weather (CAMS model)</footer>
+
+  {% if feed %}
+  <script>
+    const HISTORY = {{ history|tojson }};
+    const GEO = {{ geo|tojson }};
+    const AQI = {{ feed.aqi }};
+    const COLOR = "{{ level.color }}";
+
+    // Map: light basemap with a haze blob over the station, sized by AQI.
+    // Runs when Leaflet finishes loading, so a slow CDN never blocks the chart.
+    function initMap() {
+      const map = L.map("map-canvas", { scrollWheelZoom: false, zoomControl: false }).setView(GEO, 11);
+      L.control.zoom({ position: "bottomright" }).addTo(map);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 18,
+        className: "base-tiles",
+      }).addTo(map);
+      const size = Math.min(520, 160 + AQI);
+      L.marker(GEO, {
+        interactive: false,
+        icon: L.divIcon({ className: "", html: `<div class="haze" style="--c:${COLOR}"></div>`, iconSize: [size, size] }),
+      }).addTo(map);
+      L.marker(GEO, {
+        icon: L.divIcon({ className: "", html: `<div class="station" style="--c:${COLOR}">${AQI}</div>`, iconSize: [44, 28] }),
+      }).addTo(map).bindTooltip("Lahore station");
+    }
+
+    // Trend chart: stepped area with a hover tooltip.
+    const box = document.getElementById("trend-chart");
+    function drawTrend() {
+      if (!box || !HISTORY.length) return;
+      const W = box.clientWidth, H = 220, pad = { l: 34, r: 8, t: 12, b: 26 };
+      const top = Math.max(200, Math.ceil(Math.max(...HISTORY.map(h => h.aqi)) / 50) * 50);
+      const step = (W - pad.l - pad.r) / HISTORY.length;
+      const x = i => pad.l + i * step;
+      const y = v => pad.t + (1 - v / top) * (H - pad.t - pad.b);
+      const ticks = [];
+      for (let v = 0; v <= top; v += top > 300 ? 100 : 50) ticks.push(v);
+
+      let line = `M${x(0)},${y(HISTORY[0].aqi)}`;
+      HISTORY.forEach((h, i) => {
+        if (i) line += `V${y(h.aqi)}`;
+        line += `H${x(i + 1)}`;
+      });
+      const area = `${line}V${y(0)}H${x(0)}Z`;
+
+      box.innerHTML = `
+        <svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}">
+          <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="${COLOR}" stop-opacity=".28"/><stop offset="1" stop-color="${COLOR}" stop-opacity=".03"/>
+          </linearGradient></defs>
+          ${ticks.map(v => `<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${y(v)}" y2="${y(v)}"/>
+            <text class="axis" x="${pad.l - 8}" y="${y(v) + 4}" text-anchor="end">${v}</text>`).join("")}
+          <path d="${area}" fill="url(#g)"/>
+          <path d="${line}" fill="none" stroke="${COLOR}" stroke-width="2"/>
+          ${HISTORY.map((h, i) => `<text class="axis" x="${x(i) + step / 2}" y="${H - 6}" text-anchor="middle">${h.time}</text>`).join("")}
+          <line class="cursor" id="cursor" y1="${pad.t}" y2="${y(0)}" visibility="hidden"/>
+          <circle id="dot" r="4.5" fill="#fff" stroke="${COLOR}" stroke-width="2" visibility="hidden"/>
+          <rect x="${pad.l}" y="0" width="${W - pad.l - pad.r}" height="${H}" fill="transparent" id="hit"/>
+        </svg>
+        <div class="tip" id="tip" hidden></div>`;
+
+      const cursor = box.querySelector("#cursor"), dot = box.querySelector("#dot"), tip = box.querySelector("#tip");
+      function show(i) {
+        const h = HISTORY[i], cx = x(i) + step / 2, cy = y(h.aqi);
+        cursor.setAttribute("x1", cx); cursor.setAttribute("x2", cx);
+        dot.setAttribute("cx", cx); dot.setAttribute("cy", cy);
+        cursor.setAttribute("visibility", "visible"); dot.setAttribute("visibility", "visible");
+        let delta = "";
+        if (i > 0) {
+          const pct = (h.aqi - HISTORY[i - 1].aqi) / HISTORY[i - 1].aqi * 100;
+          delta = ` <em class="${pct > 0 ? "up" : "down"}">(${pct > 0 ? "+" : ""}${pct.toFixed(1)}%)</em>`;
+        }
+        tip.innerHTML = `<small>${h.time}</small><b>${h.aqi}</b>${delta}`;
+        tip.hidden = false;
+        tip.style.left = Math.min(Math.max(cx, 60), W - 60) + "px";
+        tip.style.top = cy + "px";
+      }
+      box.querySelector("#hit").addEventListener("mousemove", e => {
+        const r = box.getBoundingClientRect();
+        show(Math.max(0, Math.min(HISTORY.length - 1, Math.floor((e.clientX - r.left - pad.l) / step))));
+      });
+      box.querySelector("#hit").addEventListener("mouseleave", () => show(HISTORY.length - 1));
+      show(HISTORY.length - 1);
+    }
+    drawTrend();
+    window.addEventListener("resize", drawTrend);
+  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" async onload="initMap()"></script>
+  {% endif %}
+</body>
+</html>
